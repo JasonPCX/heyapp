@@ -40,12 +40,17 @@ function AddFriendsDialog() {
     setOpen((prev) => !prev);
   }
 
+  function closeDialog() {
+    setOpen(false);
+    setSearch("");
+  }
+
   async function onSendFriendRequest(receiverId: string) {
     const response = await socket.emitWithAck("friend-request:send", {
       receiverId,
     });
-    
-    setOpen(false);
+
+    closeDialog();
 
     if (response && response.status) {
       switch (response.status) {
@@ -60,7 +65,6 @@ function AddFriendsDialog() {
           break;
       }
     }
-
   }
 
   return (

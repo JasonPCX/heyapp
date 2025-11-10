@@ -22,6 +22,8 @@ import { useQueryFriendRequests } from "@/hooks/use-friend-requests";
 import { Button } from "./ui/button";
 import socket from "@/lib/sockets";
 import { useQueryClient } from "@tanstack/react-query";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { getInitials } from "@/lib/utils";
 
 function FriendsSidebar() {
   const [activeTab, setActiveTab] = useState<"friends" | "requests">("friends");
@@ -182,15 +184,21 @@ function FriendsSidebar() {
                 {friendsList.map((friend) => (
                   <button
                     key={friend.email}
-                    className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:cursor-pointer flex flex-col items-start gap-2 border-b p-4 text-sm leading-tight whitespace-nowrap last:border-b-0 w-full"
+                    className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:cursor-pointer flex flex-row items-center gap-4 border-b px-3 py-2 text-sm leading-tight whitespace-nowrap last:border-b-0 w-full"
                     onClick={() => onFriendClick(friend.id)}
                   >
-                    <div className="flex w-full items-center gap-2">
-                      <span className="text-lg">{friend.name}</span>
+                    <Avatar className="h-8 w-8 rounded-lg">
+                      <AvatarImage src={friend.avatar} alt={friend.name} />
+                      <AvatarFallback className="rounded-lg bg-gray-800 text-white">
+                        {getInitials(friend.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col justify-center w-full items-start">
+                      <span className="text-lg font-bold">{friend.name}</span>
+                      <span className="line-clamp-1 text-base whitespace-break-spaces">
+                        {friend.email}
+                      </span>
                     </div>
-                    <span className="line-clamp-1 text-base whitespace-break-spaces">
-                      {friend.email}
-                    </span>
                   </button>
                 ))}
               </>

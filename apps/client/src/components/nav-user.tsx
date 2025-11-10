@@ -28,6 +28,7 @@ import { useBoundStore } from "@/stores/useBoundStore";
 import { removeAuthToken } from "@/services/tokenService";
 import { useNavigate } from "react-router";
 import { disconnectSocket } from "@/lib/sockets";
+import { getInitials } from "@/lib/utils";
 
 export function NavUser({
   user,
@@ -49,13 +50,6 @@ export function NavUser({
     navigate("/login");
   }
 
-  const nameAbbreviation = user.name
-    ? user.name
-        .split(" ")
-        .map((str) => str.charAt(0))
-        .join("")
-    : "";
-
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -68,7 +62,7 @@ export function NavUser({
               <Avatar className="h-8 w-8 rounded-lg">
                 <AvatarImage src={user.avatar} alt={user.name} />
                 <AvatarFallback className="rounded-lg">
-                  {nameAbbreviation}
+                  {getInitials(user.name)}
                 </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -89,7 +83,7 @@ export function NavUser({
                 <Avatar className="h-8 w-8 rounded-lg">
                   <AvatarImage src={user.avatar} alt={user.name} />
                   <AvatarFallback className="rounded-lg">
-                    {nameAbbreviation}
+                    {getInitials(user.name)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
