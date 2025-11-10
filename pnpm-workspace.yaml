@@ -1,2 +1,10 @@
 packages:
   - apps/*
+
+onlyBuiltDependencies:
+  - '@swc/core'
+  - '@tailwindcss/oxide'
+  - bcrypt
+  - bufferutil
+  - esbuild
+  - utf-8-validate
