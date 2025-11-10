@@ -5,8 +5,8 @@ import socket from '@/lib/sockets';
 interface UseCallSocketEventsProps {
   callId: string | undefined;
   chatId: string;
-  callIdentifierRef: React.MutableRefObject<string | null>;
-  peerConnection: React.MutableRefObject<RTCPeerConnection | null>;
+  callIdentifierRef: React.RefObject<string | null>;
+  peerConnection: React.RefObject<RTCPeerConnection | null>;
   onCallEnded: () => void;
 }
 
