@@ -116,9 +116,9 @@ function FriendsSidebar() {
     <>
       <SidebarHeader className="gap-3.5 border-b p-4">
         <div className="flex w-full items-center justify-between">
-          <div className="text-foreground text-base font-medium">
+          <h1 className="text-foreground text-base font-medium">
             {activeTab === "friends" ? "Friends" : "Friend Requests"}
-          </div>
+          </h1>
           <AddContactDialog />
         </div>
         <div className="flex gap-2">
@@ -153,10 +153,10 @@ function FriendsSidebar() {
             )}
           </button>
         </div>
-        <SidebarInput placeholder="Type to search..." />
+        <SidebarInput placeholder="Search friends..." />
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup className="px-0">
+        <SidebarGroup className="p-0">
           <SidebarGroupContent>
             {isLoading && (
               <>
