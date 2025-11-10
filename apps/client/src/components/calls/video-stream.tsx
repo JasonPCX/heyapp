@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 interface VideoStreamProps {
-  stream: MediaStream | null;
+  ref: React.RefObject<HTMLVideoElement | null>;
   label: string;
   className?: string;
   autoPlay?: boolean;
@@ -9,24 +9,16 @@ interface VideoStreamProps {
 }
 
 export function VideoStream({ 
-  stream, 
+  ref, 
   label, 
   className = "bg-black rounded-2xl",
   autoPlay = true,
   playsInline = true 
 }: VideoStreamProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
-
   return (
     <div className="relative">
       <video
-        ref={videoRef}
+        ref={ref}
         className={className}
         autoPlay={autoPlay}
         playsInline={playsInline}

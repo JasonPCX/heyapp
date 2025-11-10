@@ -8,6 +8,7 @@ import { useChat } from "@/hooks/use-chats";
 import socket from "@/lib/sockets";
 import { useBoundStore } from "@/stores/useBoundStore";
 import { toast } from "sonner";
+import { VideoStream } from "@/components/calls/video-stream";
 
 const stunServers = {
   iceServers: [
@@ -28,38 +29,55 @@ function Call() {
   const { chatId, callId } = useParams();
   const navigate = useNavigate();
   const { setOpen } = useSidebar();
+  // Ref for local video element
   const localStreamRef = useRef<HTMLVideoElement>(null);
+  // Ref for remote video element
   const remoteStreamRef = useRef<HTMLVideoElement>(null);
+  // Ref for RTCPeerConnection
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  // Ref for call setup state
   const isSetupRef = useRef<string | false>(false);
+  // Ref for cleanup function
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Ref for call identifier
   const callIdentifierRef = useRef<string | null>(callId || null);
+  // State for indicating if call is being received
   const incomingCall = useBoundStore((state) => state.incomingCall);
+  // If call is being received, get call information
   const incomingCallInformation = useBoundStore(
     (state) => state.callInformation
   );
+  // State for peer connection status
   const [peerConnectionState, setPeerConnectionState] = useState("");
 
+  // If no chatId, redirect to chats page
   if (chatId === undefined || chatId === null) {
     navigate("/chats");
     return;
   }
 
+  // Fetch individual chat details
   const { data: chatDetails, isLoading } = useChat(chatId);
 
+  // Function to return to chat messaging page
   function onReturnToChat() {
+    // When returning to chat, open the sidebar and navigate back
     setOpen(true);
     navigate(`/chats/${chatId}`);
   }
 
+  // Get chat type
   const chatType = chatDetails?.chatType;
 
+  // TODO: implement group calls
+  // If chat is a group, show error and return to chat
   if (chatType === "group") {
     toast.error("Calls are not available for group chats");
     onReturnToChat();
     return;
   }
 
+  // Once component is mounted, close sidebar
   useEffect(() => {
     setOpen(false);
   }, []);
@@ -378,7 +396,9 @@ function Call() {
     incomingCallInformation.callOffer,
   ]);
 
+  // Function to hang up the call
   function onHangUp() {
+    // If peer connection exists, close it
     if (
       peerConnectionRef.current &&
       peerConnectionRef.current.connectionState !== "closed"
@@ -386,18 +406,19 @@ function Call() {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
+    // Clear video stream references
     if (localStreamRef.current) {
       localStreamRef.current.srcObject = null;
     }
-
     if (remoteStreamRef.current) {
       remoteStreamRef.current.srcObject = null;
     }
 
+    // Notify server about call end
     socket.emit("call:end", callIdentifierRef.current ?? callId);
-
+    // Show call ended toast
     toast.info("Call ended");
-
+    // Navigate back to chat
     onReturnToChat();
   }
 
@@ -412,30 +433,13 @@ function Call() {
         </span>
 
         <div className="w-full flex flex-col justify-center items-center gap-4 bg-accent rounded-xl px-6 py-4 max-h-screen">
-          <div className="relative">
-            <video
-              className="bg-black rounded-2xl"
-              id="remoteVideo"
-              ref={remoteStreamRef}
-              autoPlay
-              playsInline
-            ></video>
-            <h3 className="absolute bottom-2 right-4 text-shadow-accent text-white ">
-              {chatDetails?.receiverUserInfo.userName}
-            </h3>
-          </div>
-          <div className="relative">
-            <video
-              className="bg-black rounded-2xl"
-              id="localVideo"
-              ref={localStreamRef}
-              autoPlay
-              playsInline
-            ></video>
-            <h3 className="absolute bottom-2 right-4 text-shadow-accent text-white">
-              You
-            </h3>
-          </div>
+          <VideoStream
+            ref={remoteStreamRef}
+            label={chatDetails?.receiverUserInfo.userName ?? ""}
+            autoPlay
+            playsInline
+          />
+          <VideoStream ref={localStreamRef} label="You" autoPlay playsInline />
         </div>
 
         {peerConnectionState !== "connected" && (
