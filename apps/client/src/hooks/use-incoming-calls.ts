@@ -34,7 +34,7 @@ export function useIncomingCalls() {
 
   const onAnswer = () => {
     setShowDialog(false);
-    navigate(`/chats/${callInformation.chatId}/call/${callInformation.chatId}`);
+    navigate(`/chats/${callInformation.chatId}/call/${callInformation.callId}`);
   };
 
   const onHangUp = async () => {
