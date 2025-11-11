@@ -16,7 +16,6 @@ export function initializeSocketIO({ httpServer, redisClient }) {
       origin: [
         "https://admin.socket.io",
         "http://localhost:5173",
-        "https://reliable-fifth-quilt-fiction.trycloudflare.com",
       ],
       credentials: true,
     },
