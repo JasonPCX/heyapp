@@ -1,8 +1,6 @@
-import React, { useEffect, useRef, useCallback, useState } from "react";
-import { ArrowLeft, Phone } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
 import { useChat } from "@/hooks/use-chats";
 import socket from "@/lib/sockets";
@@ -11,64 +9,57 @@ import { toast } from "sonner";
 import { VideoStream } from "@/components/calls/video-stream";
 import { useMediaControls } from "@/hooks/use-media-controls";
 import { CallControls } from "@/components/calls/call-controls";
-
-const stunServers = {
-  iceServers: [
-    {
-      urls: [
-        "stun:stun1.l.google.com:19302",
-        "stun:stun2.l.google.com:19302",
-        "stun:stun.l.google.com:19302",
-        "stun:stun3.l.google.com:19302",
-        "stun:stun4.l.google.com:19302",
-      ],
-    },
-  ],
-  iceCandidatePoolSize: 10,
-};
+import { CALL_SOCKET_EVENTS, WEBRTC_CONFIG } from "@/config/webrtc";
 
 function Call() {
   const { chatId, callId } = useParams();
   const navigate = useNavigate();
   const { setOpen } = useSidebar();
+
   // Ref for local video element
-  const localVideoStreamRef = useRef<HTMLVideoElement>(null);
+  const selfVideoRef = useRef<HTMLVideoElement>(null);
   // Ref for remote video element
-  const remoteStreamVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   // Refs for local media stream
   const localStreamRef = useRef<MediaStream | null>(null);
   // Ref for remote media stream
   const remoteStreamRef = useRef<MediaStream>(new MediaStream());
-  // Ref for RTCPeerConnection
+  // Ref for RTCPeerConnection (will be created fresh in effect)
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  // Ref for call setup state
-  const isSetupRef = useRef<string | false>(false);
-  // Ref for cleanup function
-  const cleanupRef = useRef<(() => void) | null>(null);
-  // Ref for call identifier
-  const callIdentifierRef = useRef<string | null>(callId || null);
-  // State for indicating if call is being received
-  const incomingCall = useBoundStore((state) => state.incomingCall);
-  // If call is being received, get call information
-  const incomingCallInformation = useBoundStore(
-    (state) => state.callInformation
-  );
+  // Perfect-negotiation flags as refs (avoid render/state timing issues)
+  const makingOfferRef = useRef(false);
+  const ignoreOfferRef = useRef(false);
+  const isSettingRemoteAnswerPendingRef = useRef(false);
+  // isPolitePeer from store
+  const isPolitePeer = useBoundStore((state) => state.isPolitePeer);
+  const endCall = useBoundStore((state) => state.endCall);
   // State for peer connection status
-  const [peerConnectionState, setPeerConnectionState] = useState("");
+  const [peerConnectionState, setPeerConnectionState] =
+    useState<RTCPeerConnectionState | null>(null);
+  // State for signaling state
+  const [signalingState, setSignalingState] =
+    useState<RTCSignalingState | null>(null);
+
+  // Keep a stateful copy of the local stream so hooks re-run when it's ready
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const { isAudioEnabled, isVideoEnabled, toggleMute, toggleVideo } =
-    useMediaControls({
-      localStream: localStreamRef.current,
-    });
+    useMediaControls({ localStream });
 
-  // If no chatId, redirect to chats page
-  if (chatId === undefined || chatId === null) {
-    navigate("/chats");
-    return;
-  }
+  // If no chatId or callId, redirect to chats page
+  // Redirect if params are missing
+  useEffect(() => {
+    if (!chatId || !callId) {
+      navigate("/chats", { replace: true });
+    }
+  }, [chatId, callId, navigate]);
 
   // Fetch individual chat details
-  const { data: chatDetails, isLoading } = useChat(chatId);
+  const { data: chatDetails } = useChat(chatId!);
+
+  // Extract receiver info for direct chats (avoids repeated type narrowing)
+  const receiverUserInfo =
+    chatDetails?.chatType === "direct" ? chatDetails.receiverUserInfo : null;
 
   // Function to return to chat messaging page
   function onReturnToChat() {
@@ -80,69 +71,76 @@ function Call() {
   // Get chat type
   const chatType = chatDetails?.chatType;
 
-  // TODO: implement group calls
-  // If chat is a group, show error and return to chat
-  if (chatType === "group") {
-    toast.error("Calls are not available for group chats");
-    onReturnToChat();
-    return;
-  }
+  // If chat is a group, show error and return to chat (side-effectfully)
+  useEffect(() => {
+    if (chatType === "group") {
+      toast.error("Calls are not available for group chats");
+      onReturnToChat();
+    }
+  }, [chatType]);
 
   // Once component is mounted, close sidebar
   useEffect(() => {
     setOpen(false);
   }, []);
 
+  function stopAndRemoveLocalMediaStream() {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+
+    stream.getTracks().forEach((track) => {
+      track.stop();
+      stream.removeTrack(track);
+    });
+  }
+
   useEffect(() => {
-    // Don't run if chat details aren't loaded yet
-    if (!chatDetails) return;
+    // Don't run until chat details are loaded and params are present
+    if (!chatDetails || !chatId || !callId) return;
 
-    // Prevent duplicate setups using a unique key based on call state
-    const setupKey = `${chatId}-${callId}-${incomingCall}`;
-    if (isSetupRef.current === setupKey) return;
-
-    // Clean up any existing connection first
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-
-    // Mark as setup to prevent duplicate runs
-    isSetupRef.current = setupKey;
-
-    const peerConnection = new RTCPeerConnection(stunServers);
-    peerConnectionRef.current = peerConnection;
-    let isCleanedUp = false;
+    // Create a fresh peer connection for this call
+    peerConnectionRef.current = new RTCPeerConnection(
+      WEBRTC_CONFIG.STUN_SERVERS
+    );
+    const peerConnection = peerConnectionRef.current;
     // Queue for early ICE candidates
     let queuedIceCandidates: RTCIceCandidateInit[] = [];
 
+    async function processQueuedIceCandidates() {
+      for (const candidate of queuedIceCandidates) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (error) {
+          console.error("Error adding queued ICE candidate: ", error);
+        }
+      }
+      queuedIceCandidates = [];
+    }
+
+    // 1
     // -- Enabling multimedia capture
+    // - Obtain media stream from user devices
+    // - Resulting stream is stored in localStreamRef
+    // - Tracks from this stream are added to the peer connection
     const openMediaDevices = async () => {
       try {
-        localStreamRef.current = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: { width: 1280, height: 720 },
-        });
-
-        // Check if component was unmounted or effect was cleaned up
-        if (isCleanedUp) {
-          localStreamRef.current?.getTracks().forEach((track) => track.stop());
-          return;
-        }
+        localStreamRef.current = await navigator.mediaDevices.getUserMedia(
+          WEBRTC_CONFIG.MEDIA_CONSTRAINTS
+        );
+        setLocalStream(localStreamRef.current);
 
         // Show stream in HTML video AFTER we have the stream
-        if (localVideoStreamRef.current && localStreamRef.current) {
-          localVideoStreamRef.current.srcObject = localStreamRef.current;
+        if (selfVideoRef.current && localStreamRef.current) {
+          selfVideoRef.current.srcObject = localStreamRef.current;
         }
 
-        // Push tracks from local stream to peer connection only if it's still open
-        if (!isCleanedUp) {
-          localStreamRef.current
-            ?.getTracks()
-            .forEach((track: MediaStreamTrack) => {
+        localStreamRef.current
+          ?.getTracks()
+          .forEach((track: MediaStreamTrack) => {
+            if (peerConnection.signalingState !== "closed") {
               peerConnection.addTrack(track, localStreamRef.current!);
-            });
-        }
+            }
+          });
       } catch (error) {
         console.error("Error accessing media devices:", error);
         toast.error("Could not access camera/microphone");
@@ -150,19 +148,110 @@ function Call() {
     };
 
     // Start opening media devices and store the promise
-    const mediaPromise = openMediaDevices();
+    openMediaDevices();
 
-    // -- Setting up peerConnection event listeners
+    // 2
+    // -- Handling inbound media stream from remote peer
     peerConnection.ontrack = (event) => {
       event.streams[0].getTracks().forEach((track) => {
         remoteStreamRef.current.addTrack(track);
       });
 
       // Assign remote stream to video element when tracks are received
-      if (remoteStreamVideoRef.current && !isCleanedUp) {
-        remoteStreamVideoRef.current.srcObject = remoteStreamRef.current;
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
       }
     };
+
+    // 3
+    // Get a local descriptor and send it to the remote peer
+    peerConnection.onnegotiationneeded = async () => {
+      try {
+        makingOfferRef.current = true;
+        await peerConnection.setLocalDescription();
+
+        socket.emit(CALL_SOCKET_EVENTS.CALL_NEGOTIATION, {
+          callId: callId,
+          description: peerConnection.localDescription,
+        });
+      } catch (error) {
+        console.error("Error during negotiationneeded:", error);
+      } finally {
+        makingOfferRef.current = false;
+      }
+    };
+
+    // 4
+    // Handle received ICE candidates
+    peerConnection.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        socket.emit(CALL_SOCKET_EVENTS.CALL_CANDIDATE, {
+          iceCandidate: candidate,
+          callId,
+        });
+      }
+    };
+
+    // 5
+    // - On receiving a description from remote peer
+    socket.on(CALL_SOCKET_EVENTS.CALL_DESCRIPTION_NEW, async (description) => {
+      try {
+        // Check if we're ready to accept an offer (not making our own offer and in stable state)
+        const readyForOffer =
+          !makingOfferRef.current &&
+          (peerConnection.signalingState === "stable" ||
+            isSettingRemoteAnswerPendingRef.current);
+        // Detect offer collision: incoming offer when we're not ready
+        const offerCollision = description.type === "offer" && !readyForOffer;
+
+        // Impolite peer ignores colliding offers to avoid error noise
+        const shouldIgnore = !isPolitePeer && offerCollision;
+        ignoreOfferRef.current = shouldIgnore;
+        if (shouldIgnore) return;
+
+        // Track if we're setting a remote answer to avoid race conditions
+        isSettingRemoteAnswerPendingRef.current = description.type === "answer";
+
+        // Set the remote description to inform WebRTC about the other peer's configuration
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(description)
+        );
+
+        // Process any queued ICE candidates now that remote description is set
+        await processQueuedIceCandidates();
+
+        // Clear the pending flag after processing
+        isSettingRemoteAnswerPendingRef.current = false;
+
+        // If we received an offer, generate and send an answer
+        if (description.type === "offer") {
+          // Automatically generate an appropriate answer for the received offer
+          await peerConnection.setLocalDescription();
+          // Send the answer back through the signaling channel
+          socket.emit(CALL_SOCKET_EVENTS.CALL_NEGOTIATION, {
+            callId: callId,
+            description: peerConnection.localDescription,
+          });
+        }
+      } catch (error) {
+        console.error("Error handling new description: ", error);
+      }
+    });
+
+    // 6
+    // - On receiving a new ICE candidate from remote peer
+    socket.on(CALL_SOCKET_EVENTS.CALL_CANDIDATE_NEW, async (candidate) => {
+      try {
+        if (candidate && peerConnection.remoteDescription) {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          // Queue the candidate if remote description is not set yet
+          queuedIceCandidates.push(candidate);
+        }
+      } catch (error) {
+        console.error("Error adding ICE candidate: ", error);
+      }
+    });
 
     peerConnection.onconnectionstatechange = (_event) => {
       setPeerConnectionState(peerConnection.connectionState);
@@ -171,241 +260,45 @@ function Call() {
       } else if (peerConnection.connectionState === "failed") {
         toast.error("Call connection failed");
       } else if (peerConnection.connectionState === "closed") {
-        localStreamRef.current?.getTracks().forEach((track) => {
-          track.stop();
-          localStreamRef.current?.removeTrack(track);
-        });
+        stopAndRemoveLocalMediaStream();
+        setLocalStream(null);
       }
     };
 
-    // -- Making call
-    const makeCall = async () => {
-      try {
-        // Check if cleanup already happened
-        if (isCleanedUp) {
-          return;
-        }
-
-        // Wait for media devices to be ready first
-        await mediaPromise;
-
-        // Double-check connection state before proceeding
-        if (isCleanedUp) {
-          return;
-        }
-
-        // Set up ICE candidate handling BEFORE creating offer
-        let currentCallId: string | null = null;
-
-        peerConnection.onicecandidate = (event) => {
-          if (event.candidate && currentCallId) {
-            socket.emit("call:candidate", {
-              type: "offerCandidate",
-              iceCandidate: event.candidate.toJSON(),
-              callId: currentCallId,
-            });
-          }
-        };
-
-        const offerDescription = await peerConnection.createOffer();
-
-        // Once local description is set, Ice gathering should start
-        await peerConnection.setLocalDescription(offerDescription);
-
-        const response = await socket.emitWithAck("call:new", {
-          to: chatDetails?.receiverUserInfo.userId,
-          offer: offerDescription,
-          chatId,
-        });
-
-        if (response && response.status && response.status === "ERROR") {
-          switch (response.errorCode) {
-            case "USER_OFFLINE":
-              onReturnToChat();
-              toast.info("User is offline. Try to call your friend later");
-              return;
-            default:
-              toast.error("Call failed: " + response.errorCode);
-              break;
-          }
-        }
-
-        // Store the returned call ID from the server response
-        currentCallId = response?.status === "SUCCESS" ? response.callId : null;
-
-        if (currentCallId) {
-          callIdentifierRef.current = currentCallId;
-        }
-
-        socket.on(
-          "call:answered",
-          async (_responseCallId, callResponse, answerDescription) => {
-            try {
-              if (callResponse === "HANGUP") {
-                onHangUp();
-                return;
-              }
-              if (callResponse === "ANSWER" && !isCleanedUp) {
-                await peerConnection.setRemoteDescription(
-                  new RTCSessionDescription(answerDescription)
-                );
-
-                // Process any queued ICE candidates now that remote description is set
-                await processQueuedCandidates();
-              }
-            } catch (error) {
-              console.error("Error setting remote description:", error);
-              toast.error("Failed to establish connection");
-            }
-          }
-        );
-      } catch (error) {
-        console.error("Error in makeCall:", error);
-        toast.error("Failed to initiate call");
-      }
-    };
-
-    const answerCall = async () => {
-      try {
-        // Check if cleanup already happened
-        if (isCleanedUp) {
-          return;
-        }
-
-        // Wait for media devices to be ready first
-        await mediaPromise;
-
-        // Double-check connection state before proceeding
-        if (isCleanedUp) {
-          return;
-        }
-
-        // Set up ICE candidate handling BEFORE setting remote description
-        peerConnection.onicecandidate = (event) => {
-          if (event.candidate && callId) {
-            socket.emit("call:candidate", {
-              callId,
-              type: "answerCandidate",
-              iceCandidate: event.candidate.toJSON(),
-            });
-          }
-        };
-
-        const offerDescription = incomingCallInformation.callOffer;
-        await peerConnection.setRemoteDescription(
-          new RTCSessionDescription(offerDescription!)
-        );
-
-        // Process any queued ICE candidates now that remote description is set
-        await processQueuedCandidates();
-
-        const answerDescription = await peerConnection.createAnswer();
-
-        await peerConnection.setLocalDescription(answerDescription);
-
-        await socket.emitWithAck("call:answer", {
-          answer: answerDescription,
-          callId,
-          response: "ANSWER",
-        });
-      } catch (error) {
-        console.error("Error in answerCall:", error);
-        toast.error("Failed to answer call");
-      }
-    };
-
-    // Decide which action to take
-    if (
-      chatDetails?.receiverUserInfo.userId !== undefined &&
-      chatDetails?.receiverUserInfo.userId !== null &&
-      (callId === undefined || callId === null)
-    ) {
-      makeCall();
-    } else if (
-      incomingCall === true &&
-      callId !== undefined &&
-      callId !== null
-    ) {
-      answerCall();
+    peerConnection.onsignalingstatechange = (_event) => {
+      setSignalingState(peerConnection.signalingState);
     }
 
-    // Helper function to process queued ICE candidates
-    const processQueuedCandidates = async () => {
-      if (peerConnection.remoteDescription && queuedIceCandidates.length > 0) {
-        for (const candidateInit of queuedIceCandidates) {
-          try {
-            await peerConnection.addIceCandidate(
-              new RTCIceCandidate(candidateInit)
-            );
-          } catch (error) {
-            console.error("Error adding queued ICE candidate:", error);
-          }
-        }
-        queuedIceCandidates = []; // Clear the queue
-      }
-    };
-
-    // Listen on new ice candidates
-    socket.on("call:candidate:added", async (iceCandidate) => {
-      try {
-        if (isCleanedUp) {
-          return;
-        }
-
-        // If remote description is set, add candidate immediately
-        if (peerConnection.remoteDescription) {
-          const candidate = new RTCIceCandidate(iceCandidate);
-          await peerConnection.addIceCandidate(candidate);
-        } else {
-          // Queue the candidate for later processing
-          queuedIceCandidates.push(iceCandidate);
-        }
-      } catch (error) {
-        console.error("Error handling ICE candidate:", error);
-      }
+    // Listen on call hang up
+    socket.on(CALL_SOCKET_EVENTS.CALL_ENDED, () => {
+      onReturnToChat();
     });
 
-    // Listen on call hang up
-    socket.on("call:ended", () => {
+    // Listen on call cancellation (for when the caller cancels before connection)
+    socket.on(CALL_SOCKET_EVENTS.CALL_CANCELLED, () => {
+      toast.info("Call was cancelled");
       onReturnToChat();
     });
 
     // Create cleanup function
     const cleanup = () => {
-      // Set cleanup flag to prevent race conditions
-      isCleanedUp = true;
-      isSetupRef.current = false;
-
       // Clean up socket listeners
-      socket.off("call:answered");
-      socket.off("call:candidate:added");
-      socket.off("call:ended");
+      socket.off(CALL_SOCKET_EVENTS.CALL_DESCRIPTION_NEW);
+      socket.off(CALL_SOCKET_EVENTS.CALL_CANDIDATE_NEW);
+      socket.off(CALL_SOCKET_EVENTS.CALL_ENDED);
+      socket.off(CALL_SOCKET_EVENTS.CALL_CANCELLED);
 
       // Clean up media streams
-      localStreamRef.current?.getTracks().forEach((track) => {
-        track.stop();
-        localStreamRef.current?.removeTrack(track);
-      });
+      stopAndRemoveLocalMediaStream();
+      setLocalStream(null);
 
       // Clean up peer connection
       if (peerConnection.connectionState !== "closed") {
         peerConnection.close();
       }
-
-      peerConnectionRef.current = null;
     };
-
-    // Store cleanup function for manual cleanup
-    cleanupRef.current = cleanup;
-
     return cleanup;
-  }, [
-    chatDetails,
-    callId,
-    incomingCall,
-    chatId,
-    incomingCallInformation.callOffer,
-  ]);
+  }, [callId, chatId, chatDetails]);
 
   // Function to hang up the call
   function onHangUp() {
@@ -415,51 +308,70 @@ function Call() {
       peerConnectionRef.current.connectionState !== "closed"
     ) {
       peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
     }
+    // Stop local media tracks
+    stopAndRemoveLocalMediaStream();
+    setLocalStream(null);
     // Clear video stream references
-    if (localVideoStreamRef.current) {
-      localVideoStreamRef.current.srcObject = null;
+    if (selfVideoRef.current) {
+      selfVideoRef.current.srcObject = null;
     }
-    if (remoteStreamVideoRef.current) {
-      remoteStreamVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
     }
 
-    // Notify server about call end
-    socket.emit("call:end", callIdentifierRef.current ?? callId);
-    // Show call ended toast
-    toast.info("Call ended");
+    // If call hasn't been established (still negotiating), cancel it instead of ending
+    const isCallEstablished = peerConnectionState === "connected";
+    
+    if (isCallEstablished) {
+      // Notify server about call end
+      socket.emit(CALL_SOCKET_EVENTS.CALL_END, { callId });
+      toast.info("Call ended");
+    } else {
+      // Notify server about call cancellation
+      socket.emit(CALL_SOCKET_EVENTS.CALL_CANCEL, { callId });
+      toast.info("Call cancelled");
+    }
+
+    // Update store to clear call state
+    endCall();
     // Navigate back to chat
     onReturnToChat();
   }
 
+  // Get call type from store  
+  const callType = useBoundStore((state) => state.callType);
+
   return (
     <div className="w-full grid place-items-center">
+      <div>
+        {isPolitePeer ? "Polite Peer" : "Impolite Peer"}
+        {signalingState && <span> - Signaling State: {signalingState}</span>}
+        {peerConnectionState && (<span> - Connection State: {peerConnectionState}</span>)}
+      </div>
       <div className="w-full max-w-3xl space-y-4 flex flex-col justify-center items-center">
         <span className="text-xl">
-          Calling{" "}
-          <span className="font-bold">
-            {chatDetails?.receiverUserInfo.userName}...
-          </span>
+          {peerConnectionState === "connected" ? (
+            <>Connected with <span className="font-bold">{receiverUserInfo?.userName ?? ""}</span></>
+          ) : callType === "outgoing" ? (
+            <>Calling <span className="font-bold">{receiverUserInfo?.userName ?? ""}...</span></>
+          ) : (
+            <>Call with <span className="font-bold">{receiverUserInfo?.userName ?? ""}</span></>
+          )}
         </span>
 
         <div className="w-full flex flex-col justify-center items-center gap-4 bg-accent rounded-xl px-6 py-4 max-h-screen">
           <VideoStream
-            ref={remoteStreamVideoRef}
-            label={chatDetails?.receiverUserInfo.userName ?? ""}
+            ref={remoteVideoRef}
+            label={receiverUserInfo?.userName ?? ""}
             autoPlay
             playsInline
           />
-          <VideoStream
-            ref={localVideoStreamRef}
-            label="You"
-            autoPlay
-            playsInline
-          />
+          <VideoStream ref={selfVideoRef} label="You" autoPlay playsInline />
         </div>
-        
+
         <CallControls
-          isConnected={peerConnectionState === "connected"}
+          canReturnToChat={signalingState === "closed"}
           onHangUp={onHangUp}
           onReturnToChat={onReturnToChat}
           isMuted={!isAudioEnabled}

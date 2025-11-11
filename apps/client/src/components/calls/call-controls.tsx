@@ -4,7 +4,7 @@ import { ArrowLeft, Phone, Mic, MicOff, Video, VideoOff } from "lucide-react";
 interface CallControlsProps {
   onHangUp: () => void;
   onReturnToChat: () => void;
-  isConnected: boolean;
+  canReturnToChat?: boolean;
   isMuted?: boolean;
   isVideoOff?: boolean;
   onToggleMute?: () => void;
@@ -14,15 +14,15 @@ interface CallControlsProps {
 export function CallControls({
   onHangUp,
   onReturnToChat,
-  isConnected,
   isMuted = false,
   isVideoOff = false,
   onToggleMute,
   onToggleVideo,
+  canReturnToChat,
 }: CallControlsProps) {
   return (
     <div className="space-y-4 flex flex-col items-center">
-      {!isConnected && (
+      {canReturnToChat && (
         <Button
           variant="ghost"
           aria-label="Return to chat"

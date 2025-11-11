@@ -28,9 +28,10 @@ function MainLayout() {
   const {
     showDialog: showIncomingCallDialog,
     setShowDialog: setShowIncomingCallDialog,
-    callInformation,
     onAnswer,
     onHangUp,
+    remoteUserId,
+    remoteUserName,
   } = useIncomingCalls();
 
   // Handle friend requests
@@ -60,15 +61,16 @@ function MainLayout() {
     >
       <AppSidebar />
       <Outlet />
-      
+
       <IncomingCallDialog
         open={showIncomingCallDialog}
         setOpen={setShowIncomingCallDialog}
-        incomingCallInfo={callInformation}
+        remoteUserName={remoteUserName}
+        remoteUserId={remoteUserId}
         onAnswer={onAnswer}
         onHangUp={onHangUp}
       />
-      
+
       <NewFriendRequestDialog
         open={showNewFriendRequestDialog}
         setOpen={setShowNewFriendRequestDialog}

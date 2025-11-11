@@ -18,13 +18,15 @@ import { Phone } from "lucide-react";
 function IncomingCallDialog({
   open,
   setOpen,
-  incomingCallInfo,
+  remoteUserId,
+  remoteUserName,
   onAnswer,
   onHangUp,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
-  incomingCallInfo: CallInformation;
+  remoteUserId: string | null;
+  remoteUserName: string | null;
   onHangUp: () => void;
   onAnswer: () => void;
 }) {
@@ -34,7 +36,7 @@ function IncomingCallDialog({
         <AlertDialogHeader>
           <AlertDialogTitle asChild>
             <h1 className="text-2xl font-bold">
-              {incomingCallInfo.caller.name}
+              {remoteUserName}
             </h1>
           </AlertDialogTitle>
         </AlertDialogHeader>

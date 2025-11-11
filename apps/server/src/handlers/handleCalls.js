@@ -6,24 +6,27 @@ import { callKey, onlineUsersKey } from "#utils/redis.js";
 import { z } from "zod";
 
 const validateNewCall = z.object({
-  to: z.uuid(),
+  calleeId: z.uuid(),
   chatId: z.uuid(),
-  offer: z.any(),
 });
 
 const validateIceCandidate = z.object({
-  type: z.enum(["offerCandidate", "answerCandidate"]),
   iceCandidate: z.any(),
   callId: z.uuid(),
 });
 
-const validateCallResponse = z.object({
+const validateCallNegotiation = z.object({
   callId: z.uuid(),
-  response: z.enum(["HANGUP", "ANSWER"]),
-  answer: z.any().optional(),
+  description: z.any(),
 });
 
-const validateCallEnd = z.uuid();
+const validateCallEnd = z.object({
+  callId: z.uuid(),
+});
+
+const validateCallCancel = z.object({
+  callId: z.uuid(),
+});
 
 /**
  * Handles call-related socket events.
@@ -50,80 +53,145 @@ export async function handleCalls({ socket, io, redisClient }) {
       });
     }
 
-    const isReceiverOnline = await redisClient.sIsMember(onlineUsersKey(), data.to);
+    const { calleeId, chatId } = validation.data;
 
-    if (isReceiverOnline === 0) {
+    const isCalleeUserOnline = await redisClient.sIsMember(
+      onlineUsersKey(),
+      calleeId
+    );
+
+    if (isCalleeUserOnline === 0) {
       return callback({
         status: "ERROR",
         errorCode: "USER_OFFLINE",
       });
     }
 
-    await redisClient.hSet(callKey(callId), "from", socket.user.id);
-    await redisClient.hSet(callKey(callId), "to", data.to);
-    await redisClient.hSet(callKey(callId), "chatId", data.chatId);
-    await redisClient.hSet(callKey(callId), "offer", JSON.stringify(data.offer));
+    await redisClient.hSet(callKey(callId), "callerId", socket.user.id);
+    await redisClient.hSet(callKey(callId), "calleeId", calleeId);
+    await redisClient.hSet(callKey(callId), "chatId", chatId);
 
-    io.in(userRoom(data.to)).socketsJoin(chatRoom(data.chatId));
+    io.in(userRoom(calleeId)).socketsJoin(chatRoom(chatId));
     socket
-      .to(userRoom(data.to))
-      .emit("call:incoming", callId, data.offer, socket.user, data.chatId);
+      .to(userRoom(calleeId))
+      .emit("call:incoming", callId, socket.user, chatId, false);
 
     // Return success response with callId to the caller
-    callback({
+    // Caller is polite peer, callee is impolite peer for perfect negotiation
+    return callback({
       status: "SUCCESS",
       callId: callId,
+      isPolitePeer: true,
     });
   });
 
-  socket.on("call:candidate", async (data) => {
-    
+  socket.on("call:candidate", async (data, callback) => {
     const validation = validateIceCandidate.safeParse(data);
     if (!validation.success) {
-      return socket.emit("call:candidate:error", {
+      return callback({
         status: "ERROR",
         errorCode: "INVALID_DATA",
         errors: z.treeifyError(validation.error),
       });
     }
 
-    const { type, iceCandidate, callId } = validation.data;
+    const { iceCandidate, callId } = validation.data;
+    const userId = socket.user.id;
 
-    if (type === "answerCandidate") {
-      const fromUserId = await redisClient.hGet(callKey(callId), "from");
-      socket
-        .to(userRoom(fromUserId))
-        .emit("call:candidate:added", iceCandidate);
-    } else if (type === "offerCandidate") {
-      const toUserId = await redisClient.hGet(callKey(callId), "to");
-      socket.to(userRoom(toUserId)).emit("call:candidate:added", iceCandidate);
+    const callerId = await redisClient.hGet(callKey(callId), "callerId");
+    const calleeId = await redisClient.hGet(callKey(callId), "calleeId");
+
+    if (userId === callerId) {
+      return socket
+        .to(userRoom(calleeId))
+        .emit("call:candidate:new", iceCandidate);
+    } else if (userId === calleeId) {
+      return socket
+        .to(userRoom(callerId))
+        .emit("call:candidate:new", iceCandidate);
     } else {
-      logger.error("Candidate type is missing");
+      return callback({
+        status: "ERROR",
+        errorCode: "FAILED_TO_SIGNAL_ICE_CANDIDATE",
+      });
     }
   });
 
-  socket.on("call:answer", async (data) => {
-    const validation = validateCallResponse.safeParse(data);
+  socket.on("call:negotiation", async (data, callback) => {
+    const validation = validateCallNegotiation.safeParse(data);
     if (!validation.success) {
-      return socket.emit("call:answer:error", {
+      return callback({
         status: "ERROR",
         errorCode: "INVALID_DATA",
         errors: z.treeifyError(validation.error),
       });
     }
-    const { callId, response, answer } = validation.data;
+    const { callId, description } = validation.data;
+    const userId = socket.user.id;
 
-    await redisClient.hSet(
-      callKey(callId),
-      "answer",
-      JSON.stringify(answer)
-    );
+    const callerId = await redisClient.hGet(callKey(callId), "callerId");
+    const calleeId = await redisClient.hGet(callKey(callId), "calleeId");
 
-    const callerUserId = await redisClient.hGet(callKey(callId), "from");
+    if (userId === callerId) {
+      return socket
+        .to(userRoom(calleeId))
+        .emit("call:description:new", description);
+    } else if (userId === calleeId) {
+      return socket
+        .to(userRoom(callerId))
+        .emit("call:description:new", description);
+    } else {
+      return callback({
+        status: "ERROR",
+        errorCode: "FAILED_TO_SIGNAL_ICE_CANDIDATE",
+      });
+    }
+  });
 
-    socket
-      .to(userRoom(callerUserId))
-      .emit("call:answered", callId, response, answer);
+  socket.on("call:cancel", async (data, callback) => {
+    const validation = validateCallCancel.safeParse(data);
+    if (!validation.success) {
+      if (callback) {
+        return callback({
+          status: "ERROR",
+          errorCode: "INVALID_DATA",
+          errors: z.treeifyError(validation.error),
+        });
+      }
+      return;
+    }
+
+    const { callId } = validation.data;
+    const userId = socket.user.id;
+
+    const callerId = await redisClient.hGet(callKey(callId), "callerId");
+    const calleeId = await redisClient.hGet(callKey(callId), "calleeId");
+    const chatId = await redisClient.hGet(callKey(callId), "chatId");
+
+    // Only the caller can cancel the call
+    if (userId !== callerId) {
+      if (callback) {
+        return callback({
+          status: "ERROR",
+          errorCode: "UNAUTHORIZED",
+        });
+      }
+      return;
+    }
+
+    // Notify the callee that the call was cancelled
+    socket.to(userRoom(calleeId)).emit("call:cancelled", callId);
+
+    // Clean up call data from Redis
+    await redisClient.hDel(callKey(callId), "callerId");
+    await redisClient.hDel(callKey(callId), "calleeId");
+    await redisClient.hDel(callKey(callId), "chatId");
+
+    if (callback) {
+      return callback({
+        status: "SUCCESS",
+      });
+    }
   });
 
   socket.on("call:end", async (data, callback) => {
@@ -136,12 +204,26 @@ export async function handleCalls({ socket, io, redisClient }) {
       });
     }
 
-    const callId = validation.data;
+    const { callId } = validation.data;
+
+    // Validate that the user is part of the call
+    const callerId = await redisClient.hGet(callKey(callId), "callerId");
+    const calleeId = await redisClient.hGet(callKey(callId), "calleeId");
+    const userId = socket.user.id;
+
+    if (userId !== callerId && userId !== calleeId) {
+      if (callback) {
+        return callback({
+          status: "ERROR",
+          errorCode: "UNAUTHORIZED",
+        });
+      }
+      return;
+    }
 
     const chatId = await redisClient.hGet(callKey(callId), "chatId");
-    await redisClient.hDel(callKey(callId), "from");
-    await redisClient.hDel(callKey(callId), "to");
-    await redisClient.hDel(callKey(callId), "offer");
+    await redisClient.hDel(callKey(callId), "callerId");
+    await redisClient.hDel(callKey(callId), "calleeId");
     await redisClient.hDel(callKey(callId), "chatId");
 
     socket.to(chatRoom(chatId)).emit("call:ended", callId);

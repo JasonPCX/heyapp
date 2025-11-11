@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   EllipsisVertical,
@@ -25,6 +25,9 @@ import MessageItem from "./message-item";
 import MessageBox from "./message-box";
 import { useChat, useChats } from "@/hooks/use-chats";
 import { isAxiosError } from "axios";
+import socket from "@/lib/sockets";
+import { toast } from "sonner";
+import { useBoundStore } from "@/stores/useBoundStore";
 
 function ChatContainer({ chatId }: { chatId: string }) {
   const navigate = useNavigate();
@@ -34,6 +37,7 @@ function ChatContainer({ chatId }: { chatId: string }) {
   const [openAccountInfoDrawer, setOpenAccountInfoDrawer] = useState(false);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const lastMessageCountRef = useRef(0);
+  const setActiveCall = useBoundStore((state) => state.setActiveCall);
 
   // Retrieving chat info
   const { data: chatDetails, isLoading, error } = useChat(chatId);
@@ -154,8 +158,41 @@ function ChatContainer({ chatId }: { chatId: string }) {
     navigate("/chats");
   }
 
-  function onMakeCall() {
-    navigate(`/chats/${chatId}/call`);
+  async function onMakeCall() {
+    if (chatDetails?.chatType === "group") {
+      toast.error("Group calls are not available");
+      return;
+    }
+    
+    const response = await socket.emitWithAck("call:new", {
+      chatId: chatId,
+      calleeId: chatDetails?.receiverUserInfo.userId,
+    });
+
+    if (response && response.status && response.status === "ERROR") {
+      switch (response.errorCode) {
+        case "USER_OFFLINE":
+          toast.info("User is offline. Try to call your friend later");
+          return;
+        default:
+          toast.error("Call failed: " + response.errorCode);
+          break;
+      }
+    }
+
+    // Store the returned call ID from the server response
+    if (response?.status === "SUCCESS") {
+      setActiveCall({
+        callId: response.callId,
+        chatId: chatId,
+        callType: "outgoing",
+        remoteUserId: chatDetails?.receiverUserInfo.userId!,
+        remoteUserName: chatDetails?.receiverUserInfo.userName!,
+        isPolitePeer: response.isPolitePeer,
+      });
+
+      navigate(`/chats/${chatId}/call/${response.callId}`);
+    }
   }
 
   function scrollToBottom() {

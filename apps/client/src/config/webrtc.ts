@@ -36,30 +36,32 @@ export const WEBRTC_CONFIG = {
 /**
  * Call Status Types
  */
-export type CallStatus = 
-  | 'idle' 
-  | 'initializing' 
-  | 'connecting' 
-  | 'connected' 
-  | 'disconnecting' 
-  | 'failed' 
-  | 'ended';
+export type CallStatus =
+  | "idle"
+  | "initializing"
+  | "connecting"
+  | "connected"
+  | "disconnecting"
+  | "failed"
+  | "ended";
 
 /**
  * Call Types
  */
-export type CallType = 'outgoing' | 'incoming';
+export type CallType = "outgoing" | "incoming";
 
 /**
  * Socket Event Names
  */
-export const SOCKET_EVENTS = {
-  CALL_NEW: 'call:new',
-  CALL_ANSWER: 'call:answer',
-  CALL_ANSWERED: 'call:answered',
-  CALL_END: 'call:end',
-  CALL_ENDED: 'call:ended',
-  CALL_CANDIDATE: 'call:candidate',
-  CALL_CANDIDATE_ADDED: 'call:candidate:added',
-  CALL_INCOMING: 'call:incoming',
+export const CALL_SOCKET_EVENTS = {
+  CALL_NEW: "call:new",
+  CALL_CANCEL: "call:cancel",
+  CALL_CANCELLED: "call:cancelled",
+  CALL_END: "call:end",
+  CALL_ENDED: "call:ended",
+  CALL_CANDIDATE: "call:candidate",
+  CALL_CANDIDATE_NEW: "call:candidate:new",
+  CALL_INCOMING: "call:incoming",
+  CALL_DESCRIPTION_NEW: "call:description:new",
+  CALL_NEGOTIATION: "call:negotiation",
 } as const;
