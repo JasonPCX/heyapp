@@ -9,6 +9,8 @@ import socket from "@/lib/sockets";
 import { useBoundStore } from "@/stores/useBoundStore";
 import { toast } from "sonner";
 import { VideoStream } from "@/components/calls/video-stream";
+import { useMediaControls } from "@/hooks/use-media-controls";
+import { CallControls } from "@/components/calls/call-controls";
 
 const stunServers = {
   iceServers: [
@@ -30,9 +32,13 @@ function Call() {
   const navigate = useNavigate();
   const { setOpen } = useSidebar();
   // Ref for local video element
-  const localStreamRef = useRef<HTMLVideoElement>(null);
+  const localVideoStreamRef = useRef<HTMLVideoElement>(null);
   // Ref for remote video element
-  const remoteStreamRef = useRef<HTMLVideoElement>(null);
+  const remoteStreamVideoRef = useRef<HTMLVideoElement>(null);
+  // Refs for local media stream
+  const localStreamRef = useRef<MediaStream | null>(null);
+  // Ref for remote media stream
+  const remoteStreamRef = useRef<MediaStream>(new MediaStream());
   // Ref for RTCPeerConnection
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   // Ref for call setup state
@@ -49,6 +55,11 @@ function Call() {
   );
   // State for peer connection status
   const [peerConnectionState, setPeerConnectionState] = useState("");
+
+  const { isAudioEnabled, isVideoEnabled, toggleMute, toggleVideo } =
+    useMediaControls({
+      localStream: localStreamRef.current,
+    });
 
   // If no chatId, redirect to chats page
   if (chatId === undefined || chatId === null) {
@@ -101,8 +112,6 @@ function Call() {
 
     const peerConnection = new RTCPeerConnection(stunServers);
     peerConnectionRef.current = peerConnection;
-    let localStream: MediaStream | null = null;
-    let remoteStream: MediaStream = new MediaStream();
     let isCleanedUp = false;
     // Queue for early ICE candidates
     let queuedIceCandidates: RTCIceCandidateInit[] = [];
@@ -110,27 +119,29 @@ function Call() {
     // -- Enabling multimedia capture
     const openMediaDevices = async () => {
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({
+        localStreamRef.current = await navigator.mediaDevices.getUserMedia({
           audio: true,
-          video: true,
+          video: { width: 1280, height: 720 },
         });
 
         // Check if component was unmounted or effect was cleaned up
         if (isCleanedUp) {
-          localStream?.getTracks().forEach((track) => track.stop());
+          localStreamRef.current?.getTracks().forEach((track) => track.stop());
           return;
         }
 
         // Show stream in HTML video AFTER we have the stream
-        if (localStreamRef.current && localStream) {
-          localStreamRef.current.srcObject = localStream;
+        if (localVideoStreamRef.current && localStreamRef.current) {
+          localVideoStreamRef.current.srcObject = localStreamRef.current;
         }
 
         // Push tracks from local stream to peer connection only if it's still open
         if (!isCleanedUp) {
-          localStream?.getTracks().forEach((track: MediaStreamTrack) => {
-            peerConnection.addTrack(track, localStream!);
-          });
+          localStreamRef.current
+            ?.getTracks()
+            .forEach((track: MediaStreamTrack) => {
+              peerConnection.addTrack(track, localStreamRef.current!);
+            });
         }
       } catch (error) {
         console.error("Error accessing media devices:", error);
@@ -144,12 +155,12 @@ function Call() {
     // -- Setting up peerConnection event listeners
     peerConnection.ontrack = (event) => {
       event.streams[0].getTracks().forEach((track) => {
-        remoteStream.addTrack(track);
+        remoteStreamRef.current.addTrack(track);
       });
 
       // Assign remote stream to video element when tracks are received
-      if (remoteStreamRef.current && !isCleanedUp) {
-        remoteStreamRef.current.srcObject = remoteStream;
+      if (remoteStreamVideoRef.current && !isCleanedUp) {
+        remoteStreamVideoRef.current.srcObject = remoteStreamRef.current;
       }
     };
 
@@ -160,9 +171,9 @@ function Call() {
       } else if (peerConnection.connectionState === "failed") {
         toast.error("Call connection failed");
       } else if (peerConnection.connectionState === "closed") {
-        localStream?.getTracks().forEach((track) => {
+        localStreamRef.current?.getTracks().forEach((track) => {
           track.stop();
-          localStream?.removeTrack(track);
+          localStreamRef.current?.removeTrack(track);
         });
       }
     };
@@ -371,9 +382,9 @@ function Call() {
       socket.off("call:ended");
 
       // Clean up media streams
-      localStream?.getTracks().forEach((track) => {
+      localStreamRef.current?.getTracks().forEach((track) => {
         track.stop();
-        localStream?.removeTrack(track);
+        localStreamRef.current?.removeTrack(track);
       });
 
       // Clean up peer connection
@@ -407,11 +418,11 @@ function Call() {
       peerConnectionRef.current = null;
     }
     // Clear video stream references
-    if (localStreamRef.current) {
-      localStreamRef.current.srcObject = null;
+    if (localVideoStreamRef.current) {
+      localVideoStreamRef.current.srcObject = null;
     }
-    if (remoteStreamRef.current) {
-      remoteStreamRef.current.srcObject = null;
+    if (remoteStreamVideoRef.current) {
+      remoteStreamVideoRef.current.srcObject = null;
     }
 
     // Notify server about call end
@@ -434,36 +445,28 @@ function Call() {
 
         <div className="w-full flex flex-col justify-center items-center gap-4 bg-accent rounded-xl px-6 py-4 max-h-screen">
           <VideoStream
-            ref={remoteStreamRef}
+            ref={remoteStreamVideoRef}
             label={chatDetails?.receiverUserInfo.userName ?? ""}
             autoPlay
             playsInline
           />
-          <VideoStream ref={localStreamRef} label="You" autoPlay playsInline />
+          <VideoStream
+            ref={localVideoStreamRef}
+            label="You"
+            autoPlay
+            playsInline
+          />
         </div>
-
-        {peerConnectionState !== "connected" && (
-          <Button
-            variant="ghost"
-            aria-label="Return to chat"
-            className="cursor-pointer"
-            onClick={onReturnToChat}
-          >
-            <ArrowLeft />
-            Return to chat
-          </Button>
-        )}
-        <div className="space-x-4 flex flex-row justify-center items-center">
-          <Button
-            variant="default"
-            size="icon-lg"
-            aria-label="Hang up"
-            className="cursor-pointer rounded-full bg-red-500 hover:bg-red-700"
-            onClick={onHangUp}
-          >
-            <Phone />
-          </Button>
-        </div>
+        
+        <CallControls
+          isConnected={peerConnectionState === "connected"}
+          onHangUp={onHangUp}
+          onReturnToChat={onReturnToChat}
+          isMuted={!isAudioEnabled}
+          isVideoOff={!isVideoEnabled}
+          onToggleMute={toggleMute}
+          onToggleVideo={toggleVideo}
+        />
       </div>
     </div>
   );
