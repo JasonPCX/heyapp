@@ -366,8 +366,17 @@ function Call() {
             label={receiverUserInfo?.userName ?? ""}
             autoPlay
             playsInline
+            isVideoEnabled={true} // TODO: manage remote video state
+            isAudioEnabled={true} // TODO: manage remote audio state
           />
-          <VideoStream ref={selfVideoRef} label="You" autoPlay playsInline />
+          <VideoStream 
+            ref={selfVideoRef} 
+            label="You" 
+            autoPlay 
+            playsInline 
+            isVideoEnabled={isVideoEnabled}
+            isAudioEnabled={isAudioEnabled}
+          />
         </div>
 
         <CallControls
