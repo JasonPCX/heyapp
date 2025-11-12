@@ -21,9 +21,11 @@ import { NavLink } from "react-router";
 import { useChatsPreview } from "@/hooks/use-chats";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { getInitials } from "@/lib/utils";
+import { useBoundStore } from "@/stores/useBoundStore";
 
 function ChatsSidebar() {
   const { data, isLoading, error, isError } = useChatsPreview();
+  const user = useBoundStore((state) => state.user);
 
   const chatList = data?.data ?? [];
 
@@ -115,7 +117,9 @@ function ChatsSidebar() {
                     >
                       {chat.lastMessageText?.trim() ? (
                         <>
-                          <span className="font-medium">You:</span>
+                          {chat.lastMessageUserId === user.id && (
+                            <span className="font-medium">You: </span>
+                          )}
                           {chat.lastMessageText}
                         </>
                       ) : (
