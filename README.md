@@ -12,6 +12,23 @@ HeyApp is a real-time messaging and video calling application built with modern 
 - 🔄 Real-time notifications
 - ⚡ Low-latency communication using WebSockets
 
+
+## Screenshots
+
+<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin: 20px 0;">
+  <img src="docs/screenshots/1.png" alt="Screenshot 1" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/2.png" alt="Screenshot 2" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/3.png" alt="Screenshot 3" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/4.png" alt="Screenshot 4" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/5.png" alt="Screenshot 5" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/6.png" alt="Screenshot 6" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/7.png" alt="Screenshot 7" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/8.png" alt="Screenshot 8" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/9.png" alt="Screenshot 9" style="width: 100%; border-radius: 8px;">
+  <img src="docs/screenshots/10.png" alt="Screenshot 10" style="width: 100%; border-radius: 8px;">
+</div>
+
+
 ## Project Structure
 
 This project is organized as a **monorepo** containing both client and server applications in a single repository for simplified development and deployment.
