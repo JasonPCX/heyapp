@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { CallInformation } from "@/stores/callSlice";
 import { Button } from "../ui/button";
-import { Phone } from "lucide-react";
+import { Phone, PhoneOff, Video } from "lucide-react";
 
 function IncomingCallDialog({
   open,
@@ -32,33 +32,40 @@ function IncomingCallDialog({
 }) {
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
+      <AlertDialogContent className="max-w-md">
+        <AlertDialogHeader className="text-center space-y-4">
           <AlertDialogTitle asChild>
-            <h1 className="text-2xl font-bold">
+            <h1 className="text-3xl font-bold text-center">
               {remoteUserName}
             </h1>
           </AlertDialogTitle>
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+              <Video className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+            </div>
+          </div>
         </AlertDialogHeader>
-        <AlertDialogDescription>Incoming video call</AlertDialogDescription>
-        <AlertDialogFooter className="flex flex-row justify-center items-center w-full">
+        <AlertDialogDescription className="text-center text-lg mb-6">
+          Incoming video call
+        </AlertDialogDescription>
+        <AlertDialogFooter className="flex flex-row justify-center items-center gap-8 w-full">
           <Button
-            variant="default"
-            size="icon-lg"
-            aria-label="Hang up"
-            className="cursor-pointer rounded-full bg-red-500 hover:bg-red-700"
+            variant="destructive"
+            size="icon"
+            aria-label="Decline call"
+            className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 shadow-lg transition-all duration-200 hover:scale-105"
             onClick={onHangUp}
           >
-            <Phone />
+            <PhoneOff className="w-6 h-6" />
           </Button>
           <Button
             variant="default"
-            size="icon-lg"
-            aria-label="Hang up"
-            className="cursor-pointer rounded-full bg-green-500 hover:bg-green-700"
+            size="icon"
+            aria-label="Answer call"
+            className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 shadow-lg transition-all duration-200 hover:scale-105"
             onClick={onAnswer}
           >
-            <Phone />
+            <Phone className="w-6 h-6" />
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

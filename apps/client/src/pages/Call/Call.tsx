@@ -10,6 +10,7 @@ import { VideoStream } from "@/components/calls/video-stream";
 import { useMediaControls } from "@/hooks/use-media-controls";
 import { CallControls } from "@/components/calls/call-controls";
 import { CALL_SOCKET_EVENTS, WEBRTC_CONFIG } from "@/config/webrtc";
+import { ENV } from "@/lib/env";
 
 function Call() {
   const { chatId, callId } = useParams();
@@ -344,11 +345,13 @@ function Call() {
 
   return (
     <div className="w-full grid place-items-center">
-      <div>
-        {isPolitePeer ? "Polite Peer" : "Impolite Peer"}
-        {signalingState && <span> - Signaling State: {signalingState}</span>}
-        {peerConnectionState && (<span> - Connection State: {peerConnectionState}</span>)}
-      </div>
+      {ENV.MODE === "development" && (
+        <div>
+          {isPolitePeer ? "Polite Peer" : "Impolite Peer"}
+          {signalingState && <span> - Signaling State: {signalingState}</span>}
+          {peerConnectionState && (<span> - Connection State: {peerConnectionState}</span>)}
+        </div>
+      )}
       <div className="w-full max-w-3xl space-y-4 flex flex-col justify-center items-center">
         <span className="text-xl">
           {peerConnectionState === "connected" ? (
